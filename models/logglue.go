@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-type XxlJobLogGlue struct {
+type TaskLogGlue struct {
 	Id         int       `json:"id" xorm:"int(11) notnull pk autoincr"`
 	JobId      int       `json:"job_id" xorm:"int(11) notnull"`            // 任务主键ID
 	GlueType   string    `json:"glue_type" xorm:"varchar(50)"`             // GLUE类型	#com.xxl.job.core.glue.GlueTypeEnum

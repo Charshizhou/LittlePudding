@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-type XxlJobLogReport struct {
+type TaskLogReport struct {
 	Id           int       `json:"id" xorm:"int(11) notnull pk autoincr"`
 	TriggerDay   time.Time `json:"trigger_day" xorm:"datetime"`                    // 调度时间
 	RunningCount int       `json:"running_count" xorm:"int(11) notnull default 0"` // 运行中 日志数量

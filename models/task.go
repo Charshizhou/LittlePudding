@@ -2,6 +2,29 @@ package models
 
 import "time"
 
+type Status int8
+type ScheduleType int8
+type AlarmStatus int8
+
+const (
+	Enabled  Status = 1
+	Disabled Status = 2
+)
+
+const (
+	None ScheduleType = iota
+	Corn
+	FixRate
+	FixDelay
+)
+
+const (
+	Normal AlarmStatus = iota
+	DoNotAlarm
+	Success
+	Fail
+)
+
 type Task struct {
 	Id                     int          `json:"id" xorm:"int(11) pk autoincr"`
 	TaskCorn               string       `json:"jobcorn" xorm:"varchar(64) notnull"`                                // crontab
@@ -29,3 +52,22 @@ type Task struct {
 	AddTime                time.Time    `json:"add_time" xorm:"datetime created"`                                  // 任务添加时间
 	UpdateTime             time.Time    `json:"update_time" xorm:"datetime default null"`                          // 任务更新时间
 }
+
+func taskTableName() string {
+	return "task"
+}
+
+func (task *Task) Create() (insertId int, err error) {
+	_, err = Db.Insert(task)
+	if err != nil {
+		insertId = task.Id
+	}
+	return
+}
+
+func (task *Task) Update(id int, data CommonMap) (int64, error) {
+	return Db.Table(task).Update(data)
+}
+
+//func (task *Task) Delelte(id int) (int64, error) {
+//}
