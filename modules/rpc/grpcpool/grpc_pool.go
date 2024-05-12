@@ -6,9 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ouqiang/gocron/internal/modules/app"
-	"github.com/ouqiang/gocron/internal/modules/rpc/auth"
-	"github.com/ouqiang/gocron/internal/modules/rpc/proto"
+	"LittlePudding/modules/rpc/auth"
+	"LittlePudding/modules/rpc/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )
@@ -83,23 +82,16 @@ func (p *GRPCPool) factory(addr string) (*Client, error) {
 		grpc.WithBackoffMaxDelay(backOffMaxDelay),
 	}
 
-	if !app.Setting.EnableTLS {
-		opts = append(opts, grpc.WithInsecure())
-	} else {
-		server := strings.Split(addr, ":")
-		certificate := auth.Certificate{
-			CAFile:     app.Setting.CAFile,
-			CertFile:   app.Setting.CertFile,
-			KeyFile:    app.Setting.KeyFile,
-			ServerName: server[0],
-		}
-
-		transportCreds, err := certificate.GetTransportCredsForClient()
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, grpc.WithTransportCredentials(transportCreds))
+	server := strings.Split(addr, ":")
+	certificate := auth.Certificate{
+		ServerName: server[0],
 	}
+
+	transportCreds, err := certificate.GetTransportCredsForClient()
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, grpc.WithTransportCredentials(transportCreds))
 
 	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 	defer cancel()

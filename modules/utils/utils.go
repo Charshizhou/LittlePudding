@@ -5,12 +5,11 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"github.com/Tang-RoseChild/mahonia"
 	"math/rand"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/Tang-RoseChild/mahonia"
 )
 
 func RandAuthToken() string {

@@ -27,7 +27,7 @@ const (
 
 type Task struct {
 	Id                     int          `json:"id" xorm:"int(11) pk autoincr"`
-	TaskCorn               string       `json:"jobcorn" xorm:"varchar(64) notnull"`                                // crontab
+	TaskCorn               string       `json:"task_corn" xorm:"varchar(64) notnull"`                              // crontab
 	TaskDesc               string       `json:"task_desc" xorm:"varchar(255) notnull"`                             // 任务描述
 	Author                 string       `json:"author" xorm:"varchar(64) default ('')"`                            // 任务创建者
 	AlarmStatus            AlarmStatus  `json:"alarm_status" xorm:"tinyint(4) notnull default (0)"`                // 报警状态
@@ -36,13 +36,12 @@ type Task struct {
 	ScheduleConf           string       `json:"schedule_conf" xorm:"varchar(128) default ('')"`                    // 调度配置
 	MisfireStrategy        string       `json:"misfire_strategy xorm::varchar(50) notnull default ('DO_NOTHING')"` // 调度过期策略
 	ExecutorRouteStrategy  string       `json:"executor_route_strategy" xorm:"varchar(50) default ('')"`           // 执行器路由策略
-	ExecutorHandler        string       `json:"executor_handler" xorm:"varchar(255) default ('')"`                 // 执行器任务处理器
-	ExecutorParam          string       `json:"executer_param" xorm:"varchar(512) default ('')"`                   // 执行器任务参数
+	ExecutorId             string       `json:"executor_handler" xorm:"int not null"`                              // 执行器组id
+	TaskParam              string       `json:"task_param" xorm:"varchar(512) default ('')"`                       // 任务参数
 	ExecutorBlockStrategy  string       `json:"executor_block_strategy" xorm:"varchar(50) default ('')"`           // 执行器阻塞策略
 	ExecutorTimeout        int          `json:"executor_timeout" xorm:"int(11) notnull default (0)"`               // 执行器任务超时时间
 	ExecutorFailRetryCount int          `json:"executor_fail_retry_count" xorm:"int(11) notnull default (0)"`      // 失败重试次数
 	GlueType               string       `json:"glue_type" xorm:"varchar(50) notnull"`                              // 任务代码方式
-	GlueSource             string       `json:"glue_source" xorm:"varchar(256)"`                                   // 任务代码源
 	GlueRemark             string       `json:"glue_remark" xorm:"varchar(256) default ('')"`                      // 任务代码备注
 	GlueUpdatetime         time.Time    `json:"glue_updatetime" xorm:"datetime default null"`                      // GLUE更新时间
 	ChildTaskid            string       `json:"child_taskid" xorm:"varchar(255) default null"`                     // 子任务id，多个逗号分隔

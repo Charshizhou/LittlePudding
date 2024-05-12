@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-// Executor 执行器模型
+// Executor 执行组模型
 type Executor struct {
 	Id            int         `json:"id" xorm:"int pk autoincr"`
 	ExecutorName  string      `json:"executor_name" xorm:"varchar(64) notnull"`           // 执行器名称

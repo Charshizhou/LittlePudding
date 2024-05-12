@@ -5,9 +5,11 @@
 Package rpc is a generated protocol buffer package.
 
 It is generated from these files:
+
 	task.proto
 
 It has these top-level messages:
+
 	TaskRequest
 	TaskResponse
 */
