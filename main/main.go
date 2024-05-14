@@ -8,25 +8,15 @@ import (
 )
 
 func testJobRun() {
-	jobRunner := NewJobRunner(0, "127.0.0.1:9000", 2)
+	jobRunner := NewJobRunner(0, 2)
 	jobRunner.Run()
-	job := &Job{
-		Id:      0,
-		RunType: "CMD",
-		CmdType: "go",
-		CmdPath: "D:\\GoPro\\LittlePudding\\scripts\\hello.go",
-	}
-	job_2 := &Job{
-		Id:      1,
-		RunType: "CMD",
-		CmdType: "python",
-		CmdPath: "D:\\GoPro\\LittlePudding\\scripts\\hello.py",
-	}
+	job := NewJob(0, "CMD go", "D:\\GoPro\\LittlePudding\\scripts\\hello.go")
+	job_2 := NewJob(1, "CMD python", "D:\\GoPro\\LittlePudding\\scripts\\hello.py 1 2")
 	jobRunner.JobChan <- job
 	jobRunner.JobChan <- job_2
 	time.Sleep(10 * time.Second)
 	jobRunner.Stop()
-	jobRunner.Wait.Wait()
+	jobRunner.Wait()
 	fmt.Println("%v", job)
 	fmt.Println("%v", job_2)
 }

@@ -2,17 +2,23 @@ syntax = "proto3";
 
 package rpc;
 
-service Task {
-    rpc Run(TaskRequest) returns (TaskResponse) {}
+option go_package = "./";
+
+service TaskService {
+    rpc RunTask(TaskRequest) returns (TaskResponse) {}
 }
 
 message TaskRequest {
-    string command = 2; // 命令
-    int32 timeout = 3;  // 任务执行超时时间
-    int64 id = 4; // 执行任务唯一ID
+    int32 id = 1;
+    int32 priority = 2;
+    int64 exec_time = 3; // Use int64 to represent time as Unix timestamp
+    string route_strategy = 4;
+    string task_type = 5;
+    string task_param = 6;
 }
 
 message TaskResponse {
-    string output = 1; // 命令标准输出
-    string error = 2;  // 命令错误
+    int32 id = 1;
+    int32 result = 2;
+    string error = 3;
 }

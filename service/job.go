@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,40 +26,45 @@ const (
 type Job struct {
 	Id        int
 	RunType   string //任务类型 GLUE 脚本
-	GlueParam string //cobra参数
-	CmdType   string //脚本类型
-	CmdParam  string //脚本参数
-	CmdPath   string //脚本路径
+	glueParam string //cobra参数
+	cmdType   string //脚本类型
+	cmdParam  string //脚本参数
 	Status    Status //执行状态
-	Result    Result //执行结果
-	errInfo   string //错误信息
+}
+
+type JobResult struct {
+	Id     int
+	Result Result
+	Err    error
 }
 
 // JobRunner 执行器
 type JobRunner struct {
-	Id        int
-	address   string
-	JobChan   chan *Job
-	quit      chan struct{}
-	Wait      sync.WaitGroup
-	maxJobNum int
+	Id              int
+	JobChan         chan *Job
+	ResultChan      chan *JobResult
+	mutexJobRunners sync.Mutex
+	quit            chan struct{}
+	wait            sync.WaitGroup
+	maxJobNum       int
 }
 
 // NewJob 创建任务
-func NewJob(id int, runType string, cmdType string, cmdParam, glueParam, cmdPath interface{}) *Job {
+func NewJob(id int, runType string, runParam interface{}) *Job {
 	if runType == "GLUE" {
 		return &Job{
 			Id:        id,
 			RunType:   runType,
-			GlueParam: glueParam.(string),
+			glueParam: runParam.(string),
 		}
 	} else {
+		// CMD类型任务的runType格式为"CMD 脚本类型"
+		cmdType := strings.Split(runType, " ")[1]
 		return &Job{
 			Id:       id,
 			RunType:  runType,
-			CmdType:  cmdType,
-			CmdParam: cmdParam.(string),
-			CmdPath:  cmdPath.(string),
+			cmdType:  cmdType,
+			cmdParam: runParam.(string),
 		}
 	}
 }
@@ -82,14 +88,11 @@ func (t *Job) Run() (err error) {
 // RunByCmd 执行命令
 func (t *Job) RunByCmd() (err error) {
 	var cmd *exec.Cmd
-	switch t.CmdType {
+	switch t.cmdType {
 	case "go":
 		// 执行go脚本
-		if t.CmdParam == "" {
-			cmd = exec.Command("go", "run", t.CmdPath)
-		} else {
-			cmd = exec.Command("go", "run", t.CmdParam, t.CmdPath)
-		}
+		args := strings.Split(t.cmdParam, " ")
+		cmd = exec.Command("go", append([]string{"run"}, args...)...)
 		output, err := cmd.Output()
 		if err != nil {
 			// 执行失败
@@ -99,11 +102,8 @@ func (t *Job) RunByCmd() (err error) {
 		fmt.Printf("执行成功,输出结果:%s\n", output)
 	case "python":
 		// 执行python脚本
-		if t.CmdParam == "" {
-			cmd = exec.Command("python", t.CmdPath)
-		} else {
-			cmd = exec.Command("python", t.CmdParam, t.CmdPath)
-		}
+		args := strings.Split(t.cmdParam, " ")
+		cmd = exec.Command("python", args...)
 		output, err := cmd.Output()
 		if err != nil {
 			// 执行失败
@@ -116,44 +116,51 @@ func (t *Job) RunByCmd() (err error) {
 }
 
 // NewJobRunner 创建执行器
-func NewJobRunner(id int, address string, maxJobNum interface{}) *JobRunner {
+func NewJobRunner(id int, maxJobNum interface{}) *JobRunner {
 	// 默认最大任务数
 	if maxJobNum == nil {
 		maxJobNum = 10
 	}
 	return &JobRunner{
 		Id:        id,
-		address:   address,
 		JobChan:   make(chan *Job, maxJobNum.(int)),
 		quit:      make(chan struct{}),
-		Wait:      sync.WaitGroup{},
+		wait:      sync.WaitGroup{},
 		maxJobNum: maxJobNum.(int),
 	}
 }
 
 // Run 执行队列
 func (t *JobRunner) Run() {
-	t.Wait.Add(1)
+	t.wait.Add(1)
 	go func() {
-		defer t.Wait.Done()
+		defer t.wait.Done()
 		for {
 			select {
 			case job := <-t.JobChan:
 				go func() {
 					job.Status = Running
+					defer func() {
+						job.Status = Finished
+					}()
 					err := job.Run()
 					if err != nil {
-						job.Result = Failure
-						job.errInfo = err.Error()
+						t.ResultChan <- &JobResult{
+							Id:     job.Id,
+							Result: Failure,
+							Err:    err,
+						}
 					}
-					job.Result = Success
-					job.Status = Finished
+					t.ResultChan <- &JobResult{
+						Id:     job.Id,
+						Result: Success,
+						Err:    nil,
+					}
 				}()
 			case <-t.quit:
 				return
-			default:
-				// 为空则继续接收 1ms
-				time.Sleep(time.Millisecond)
+			case <-time.After(1 * time.Second):
+				continue
 			}
 		}
 	}()
@@ -161,14 +168,21 @@ func (t *JobRunner) Run() {
 
 func (t *JobRunner) Stop() {
 	close(t.quit)
-	t.Wait.Wait()
+	t.wait.Wait()
 }
 
 func (t *JobRunner) AddJob(job *Job) {
+	t.mutexJobRunners.Lock()
+	defer t.mutexJobRunners.Unlock()
 	job.Status = Queuing
 	t.JobChan <- job
 }
 
-func (t *JobRunner) IsFull() bool {
+// IsAvailable 是否可用
+func (t *JobRunner) IsAvailable() bool {
 	return len(t.JobChan) >= t.maxJobNum
+}
+
+func (t *JobRunner) Wait() {
+	t.wait.Wait()
 }
