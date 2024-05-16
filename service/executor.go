@@ -2,6 +2,9 @@ package service
 
 import (
 	"container/heap"
+	"context"
+	"errors"
+	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -87,9 +90,9 @@ func NewExecutor(id, numJobRunners, fastHeapSize, slowHeapSize, taskMapNum int) 
 	heap.Init(&fastHeap)
 	heap.Init(&slowHeap)
 	jobRunners := make(map[int]*JobRunner, numJobRunners)
-	for i := 1; i < numJobRunners; i++ {
+	for i := 0; i < numJobRunners; i++ {
 		jobRunners[i] = NewJobRunner(i, 5)
-		go jobRunners[i].Run()
+		go jobRunners[i].Run(resultChan)
 	}
 	return &Executor{
 		Id:         id,
@@ -111,19 +114,32 @@ func (e *Executor) AddTasksToExec() {
 	for {
 		// 从快堆取出优先级最高的任务执行
 		if e.FastHeap.Len() > 0 {
+			e.mutex.Lock()
 			task := heap.Pop(&e.FastHeap).(*Task)
+			e.mutex.Unlock()
 			// 任务添加到缓冲区
 			e.addTaskToExec(task)
+			continue
 		}
 		// 如果快堆为空，则从慢堆取出任务执行
 		if e.SlowHeap.Len() > 0 {
+			e.mutex.Lock()
 			task := heap.Pop(&e.SlowHeap).(*Task)
+			e.mutex.Unlock()
 			// 任务添加到缓冲区
 			e.addTaskToExec(task)
+			continue
 		}
 		// 如果快慢堆都为空，则等待
 		if e.FastHeap.Len() == 0 && e.SlowHeap.Len() == 0 {
 			e.isFull.Signal()
+		}
+
+		timer := time.NewTimer(1 * time.Millisecond)
+		select {
+		case <-timer.C:
+			// 定时器触发，继续下一轮循环
+			timer.Stop()
 		}
 	}
 }
@@ -174,35 +190,42 @@ func (e *Executor) Run() {
 
 func (e *Executor) dispatchTask(task Task, jobRunners []int) {
 	job := NewJob(task.Id, task.TaskType, task.TaskParam)
+	log.Println("dispatch task: ", task.Id, task.TaskType, task.TaskParam, task.RouteStrategy)
 	switch task.RouteStrategy {
 	case "Random":
 		// 随机选择一个执行器
 		e.mutex.RLock()
 		defer e.mutex.RUnlock()
 		e.jobRunners[jobRunners[rand.Intn(len(jobRunners))]].AddJob(job)
+		return
 	case "RoundRobin":
 		// 读锁
 		e.mutex.Lock()
-		defer e.mutex.Unlock()
 		for i := 0; i < len(e.jobRunners); i++ {
 			idx := (e.lastJobRun + i) % len(e.jobRunners)
 			if e.jobRunners[idx].IsAvailable() {
 				e.jobRunners[idx].AddJob(job)
 				e.lastJobRun = idx
+				e.mutex.Unlock()
 				return
 			}
 		}
 	case "LeastTask":
 		// 选择任务最少的执行器
 		e.mutex.Lock()
-		defer e.mutex.Unlock()
 		minJobRunner := 0
+		if len(jobRunners) == 1 {
+			e.jobRunners[jobRunners[0]].AddJob(job)
+			return
+		}
 		for i := 0; i < len(e.jobRunners); i++ {
 			if len(e.jobRunners[i].JobChan) < len(e.jobRunners[minJobRunner].JobChan) {
 				minJobRunner = i
 			}
 		}
 		e.jobRunners[minJobRunner].AddJob(job)
+		e.mutex.Unlock()
+		return
 	}
 }
 
@@ -223,21 +246,95 @@ func (e *Executor) addTaskToExec(task *Task) {
 	e.taskChan <- task
 }
 
-func (e *Executor) RunTask(id int, priority int, execTime time.Time, routeStrategy, taskType, taskParam string) {
-	task := &Task{
-		Id:            id,
-		Priority:      priority,
-		ExecTime:      execTime,
-		RouteStrategy: routeStrategy,
-		TaskType:      taskType,
-		TaskParam:     taskParam,
-		TaskStatus:    Queuing,
-	}
+func (e *Executor) RunTask(ctx context.Context, task *Task) (*TaskResult, error) {
+	resultChan := make(chan *TaskResult, 1)
+
+	// 将task加入堆和taskMap中
+	e.mutex.Lock()
 	if task.Priority > 0 {
 		heap.Push(&e.FastHeap, task)
 	} else {
 		heap.Push(&e.SlowHeap, task)
 	}
-	//在taskMap中添加
 	e.taskMap[task.Id] = task
+	e.mutex.Unlock()
+
+	// 启动一个goroutine来等待结果
+	go func() {
+		for {
+			if task.TaskStatus == Finished {
+				e.mutex.Lock()
+				result := task.TaskResult
+				delete(e.taskMap, task.Id)
+				e.mutex.Unlock()
+
+				if result != nil {
+					resultChan <- result
+				} else {
+					resultChan <- &TaskResult{
+						Id:     task.Id,
+						Result: Failure,
+						Err:    errors.New("task finished but result is nil"),
+					}
+				}
+				return
+			}
+			time.Sleep(10 * time.Millisecond) // 避免频繁检查
+		}
+	}()
+
+	select {
+	case result := <-resultChan:
+		log.Println("task result: ", result)
+		return &TaskResult{
+			Id:     task.Id,
+			Result: result.Result,
+			Err:    result.Err,
+		}, nil
+	case <-ctx.Done():
+		// 超时处理
+		e.mutex.Lock()
+		delete(e.taskMap, task.Id)
+		e.mutex.Unlock()
+		return nil, ctx.Err()
+	}
 }
+
+//func (e *Executor) RunTask(ctx context.Context, task *Task) (*TaskResult, error) {
+//	resultChan := make(chan *TaskResult, 1)
+//
+//	// 将task加入堆和taskMap中
+//	e.mutex.Lock()
+//	if task.Priority > 0 {
+//		heap.Push(&e.FastHeap, task)
+//	} else {
+//		heap.Push(&e.SlowHeap, task)
+//	}
+//	e.taskMap[task.Id] = task
+//	e.mutex.Unlock()
+//
+//	// 启动一个goroutine来等待结果
+//	go func() {
+//		for {
+//			if task.TaskStatus == Finished {
+//				e.mutex.Lock()
+//				delete(e.taskMap, task.Id)
+//				e.mutex.Unlock()
+//				resultChan <- task.TaskResult
+//				return
+//			}
+//			time.Sleep(10 * time.Millisecond) // 避免频繁检查
+//		}
+//	}()
+//
+//	select {
+//	case result := <-resultChan:
+//		return &TaskResult{
+//			Id:     task.Id,
+//			Result: result.Result,
+//			Err:    result.Err,
+//		}, nil
+//	case <-ctx.Done():
+//		return nil, ctx.Err()
+//	}
+//}

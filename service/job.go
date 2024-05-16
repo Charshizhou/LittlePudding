@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"os/exec"
 	"strings"
 	"sync"
@@ -42,7 +43,6 @@ type JobResult struct {
 type JobRunner struct {
 	Id              int
 	JobChan         chan *Job
-	ResultChan      chan *JobResult
 	mutexJobRunners sync.Mutex
 	quit            chan struct{}
 	wait            sync.WaitGroup
@@ -131,7 +131,7 @@ func NewJobRunner(id int, maxJobNum interface{}) *JobRunner {
 }
 
 // Run 执行队列
-func (t *JobRunner) Run() {
+func (t *JobRunner) Run(resultChan chan *JobResult) {
 	t.wait.Add(1)
 	go func() {
 		defer t.wait.Done()
@@ -145,17 +145,18 @@ func (t *JobRunner) Run() {
 					}()
 					err := job.Run()
 					if err != nil {
-						t.ResultChan <- &JobResult{
+						resultChan <- &JobResult{
 							Id:     job.Id,
 							Result: Failure,
 							Err:    err,
 						}
 					}
-					t.ResultChan <- &JobResult{
+					resultChan <- &JobResult{
 						Id:     job.Id,
 						Result: Success,
 						Err:    nil,
 					}
+					log.Println("任务执行完成")
 				}()
 			case <-t.quit:
 				return
@@ -180,7 +181,7 @@ func (t *JobRunner) AddJob(job *Job) {
 
 // IsAvailable 是否可用
 func (t *JobRunner) IsAvailable() bool {
-	return len(t.JobChan) >= t.maxJobNum
+	return len(t.JobChan) <= t.maxJobNum
 }
 
 func (t *JobRunner) Wait() {

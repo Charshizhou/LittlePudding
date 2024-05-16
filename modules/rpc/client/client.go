@@ -23,11 +23,11 @@ var (
 	errUnavailable = errors.New("无法连接远程服务器")
 )
 
-func generateTaskUniqueKey(ip string, port int, id int64) string {
+func generateTaskUniqueKey(ip string, port int, id int32) string {
 	return fmt.Sprintf("%s:%d:%d", ip, port, id)
 }
 
-func Stop(ip string, port int, id int64) {
+func Stop(ip string, port int, id int32) {
 	key := generateTaskUniqueKey(ip, port, id)
 	cancel, ok := taskMap.Load(key)
 	if !ok {
@@ -47,10 +47,10 @@ func Exec(ip string, port int, taskReq *pb.TaskRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if taskReq.Timeout <= 0 || taskReq.Timeout > 86400 {
-		taskReq.Timeout = 86400
+	if taskReq.TaskTimeout <= 0 || taskReq.TaskTimeout > 86400 {
+		taskReq.TaskTimeout = 86400
 	}
-	timeout := time.Duration(taskReq.Timeout) * time.Second
+	timeout := time.Duration(taskReq.TaskTimeout) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -58,16 +58,22 @@ func Exec(ip string, port int, taskReq *pb.TaskRequest) (string, error) {
 	taskMap.Store(taskUniqueKey, cancel)
 	defer taskMap.Delete(taskUniqueKey)
 
-	resp, err := c.Run(ctx, taskReq)
+	resp, err := c.RunTask(ctx, taskReq)
+	var result string
+	if resp.Result == 0 {
+		result = "Success"
+	} else {
+		result = "Failed"
+	}
 	if err != nil {
 		return parseGRPCError(err)
 	}
 
 	if resp.Error == "" {
-		return resp.Output, nil
+		return result, nil
 	}
 
-	return resp.Output, errors.New(resp.Error)
+	return result, errors.New(resp.Error)
 }
 
 func parseGRPCError(err error) (string, error) {

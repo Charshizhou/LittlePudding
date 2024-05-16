@@ -67,6 +67,3 @@ func (task *Task) Create() (insertId int, err error) {
 func (task *Task) Update(id int, data CommonMap) (int64, error) {
 	return Db.Table(task).Update(data)
 }
-
-//func (task *Task) Delelte(id int) (int64, error) {
-//}

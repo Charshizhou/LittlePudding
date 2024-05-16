@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net"
 	"os"
 	"os/signal"
@@ -9,15 +10,17 @@ import (
 
 	"LittlePudding/modules/rpc/auth"
 	pb "LittlePudding/modules/rpc/proto"
-	"LittlePudding/modules/utils"
+	"LittlePudding/service"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 )
 
-type Server struct{}
+type Server struct {
+	Executor *service.Executor
+	pb.UnimplementedTaskServiceServer
+}
 
 var keepAlivePolicy = keepalive.EnforcementPolicy{
 	MinTime:             10 * time.Second,
@@ -30,24 +33,29 @@ var keepAliveParams = keepalive.ServerParameters{
 	Timeout:           3 * time.Second,
 }
 
-func (s Server) Run(ctx context.Context, req *pb.TaskRequest) (*pb.TaskResponse, error) {
-	defer func() {
-		if err := recover(); err != nil {
-			log.Error(err)
-		}
-	}()
-	log.Infof("execute cmd start: [id: %d cmd: %s]", req.Id, req.Command)
-	output, err := utils.ExecShell(ctx, req.Command)
-	resp := new(pb.TaskResponse)
-	resp.Output = output
-	if err != nil {
-		resp.Error = err.Error()
-	} else {
-		resp.Error = ""
+func (s *Server) RunTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskResponse, error) {
+	log.Infof("received task: %v", req)
+	task := &service.Task{
+		Id:            int(req.Id),
+		Priority:      int(req.Priority),
+		ExecTime:      time.Unix(req.ExecTime, 0),
+		RouteStrategy: req.RouteStrategy,
+		TaskType:      req.TaskType,
+		TaskParam:     req.TaskParam,
+		TaskStatus:    service.Queuing,
 	}
-	log.Infof("execute cmd end: [id: %d cmd: %s err: %s]", req.Id, req.Command, resp.Error)
-
-	return resp, nil
+	var result *service.TaskResult
+	result, err := s.Executor.RunTask(context.Background(), task)
+	if err != nil {
+		log.Errorf("run task failed: %v", err)
+		return nil, err
+	}
+	resp := &pb.TaskResponse{
+		Id:     int32(result.Id),
+		Result: int32(result.Result),
+		Error:  "",
+	}
+	return resp, err
 }
 
 func Start(addr string, enableTLS bool, certificate auth.Certificate) {
@@ -68,12 +76,13 @@ func Start(addr string, enableTLS bool, certificate auth.Certificate) {
 		opts = append(opts, opt)
 	}
 	server := grpc.NewServer(opts...)
-	pb.RegisterTaskServer(server, Server{})
+	executor := service.NewExecutor(0, 5, 50, 50, 100)
+	executor.Run()
+	pb.RegisterTaskServiceServer(server, &Server{Executor: executor})
 	log.Infof("server listen on %s", addr)
 
 	go func() {
-		err = server.Serve(l)
-		if err != nil {
+		if err = server.Serve(l); err != nil {
 			log.Fatal(err)
 		}
 	}()
@@ -92,5 +101,4 @@ func Start(addr string, enableTLS bool, certificate auth.Certificate) {
 			return
 		}
 	}
-
 }

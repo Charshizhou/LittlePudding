@@ -31,6 +31,7 @@ type TaskRequest struct {
 	RouteStrategy string `protobuf:"bytes,4,opt,name=route_strategy,json=routeStrategy,proto3" json:"route_strategy,omitempty"`
 	TaskType      string `protobuf:"bytes,5,opt,name=task_type,json=taskType,proto3" json:"task_type,omitempty"`
 	TaskParam     string `protobuf:"bytes,6,opt,name=task_param,json=taskParam,proto3" json:"task_param,omitempty"`
+	TaskTimeout   int32  `protobuf:"varint,7,opt,name=task_timeout,json=taskTimeout,proto3" json:"task_timeout,omitempty"`
 }
 
 func (x *TaskRequest) Reset() {

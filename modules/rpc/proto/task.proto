@@ -15,6 +15,7 @@ message TaskRequest {
     string route_strategy = 4;
     string task_type = 5;
     string task_param = 6;
+    string task_timeout = 7;
 }
 
 message TaskResponse {
