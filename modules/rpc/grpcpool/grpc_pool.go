@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"LittlePudding/modules/rpc/auth"
-	"LittlePudding/modules/rpc/proto"
+	rpc "LittlePudding/modules/rpc/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )
@@ -85,6 +85,8 @@ func (p *GRPCPool) factory(addr string) (*Client, error) {
 	server := strings.Split(addr, ":")
 	certificate := auth.Certificate{
 		ServerName: server[0],
+		CertFile:   "cert.pem",
+		KeyFile:    "key.pem",
 	}
 
 	transportCreds, err := certificate.GetTransportCredsForClient()

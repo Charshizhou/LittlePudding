@@ -1,7 +1,8 @@
 package service
 
 import (
-	"fmt"
+	"context"
+	"errors"
 	log "github.com/sirupsen/logrus"
 	"os/exec"
 	"strings"
@@ -16,6 +17,8 @@ type JobFunc func()
 const ( // 完成
 	Success Result = iota // 成功
 	Failure               // 失败
+	Expired               // 执行超时
+	Overdue               // 任务过期
 )
 
 const (
@@ -26,17 +29,19 @@ const (
 
 type Job struct {
 	Id        int
-	RunType   string //任务类型 GLUE 脚本
-	glueParam string //cobra参数
-	cmdType   string //脚本类型
-	cmdParam  string //脚本参数
-	Status    Status //执行状态
+	RunType   string        //任务类型 GLUE 脚本
+	glueParam string        //cobra参数
+	cmdType   string        //脚本类型
+	cmdParam  string        //脚本参数
+	Status    Status        //执行状态
+	Timeout   time.Duration //超时时间
 }
 
 type JobResult struct {
-	Id     int
-	Result Result
-	Err    error
+	Id       int
+	ExecTime time.Time
+	Result   Result
+	Err      error
 }
 
 // JobRunner 执行器
@@ -71,48 +76,34 @@ func NewJob(id int, runType string, runParam interface{}) *Job {
 
 // Run 任务执行
 // TODO: GLUE类型任务执行
-func (t *Job) Run() (err error) {
+func (t *Job) Run(ctx context.Context) (err error) {
 	if t.RunType == "GLUE" {
 		// 执行脚本
 	}
 	// 执行命令
-	err = t.RunByCmd()
-	if err != nil {
-		// 执行失败
-		fmt.Println("执行失败", err)
-		return err
-	}
-	return nil
+	err = t.RunByCmd(ctx)
+	return
 }
 
 // RunByCmd 执行命令
-func (t *Job) RunByCmd() (err error) {
+func (t *Job) RunByCmd(ctx context.Context) (err error) {
 	var cmd *exec.Cmd
+	args := strings.Split(t.cmdParam, " ")
 	switch t.cmdType {
 	case "go":
 		// 执行go脚本
-		args := strings.Split(t.cmdParam, " ")
-		cmd = exec.Command("go", append([]string{"run"}, args...)...)
-		output, err := cmd.Output()
-		if err != nil {
-			// 执行失败
-			fmt.Println("执行失败", err)
-			return err
-		}
-		fmt.Printf("执行成功,输出结果:%s\n", output)
+		cmd = exec.CommandContext(ctx, "go", append([]string{"run"}, args...)...)
 	case "python":
 		// 执行python脚本
-		args := strings.Split(t.cmdParam, " ")
-		cmd = exec.Command("python", args...)
-		output, err := cmd.Output()
-		if err != nil {
-			// 执行失败
-			fmt.Println("执行失败", err)
-			return err
-		}
-		fmt.Printf("执行成功,输出结果:%s\n", output)
+		cmd = exec.CommandContext(ctx, "python", args...)
 	}
-	return nil
+	output, err := cmd.Output()
+	log.Printf("执行成功,输出结果:%s\n", output)
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		err = ctx.Err()
+		return
+	}
+	return
 }
 
 // NewJobRunner 创建执行器
@@ -138,26 +129,36 @@ func (t *JobRunner) Run(resultChan chan *JobResult) {
 		for {
 			select {
 			case job := <-t.JobChan:
-				go func() {
-					job.Status = Running
-					defer func() {
-						job.Status = Finished
-					}()
-					err := job.Run()
-					if err != nil {
-						resultChan <- &JobResult{
-							Id:     job.Id,
-							Result: Failure,
-							Err:    err,
-						}
-					}
-					resultChan <- &JobResult{
-						Id:     job.Id,
-						Result: Success,
-						Err:    nil,
-					}
-					log.Println("任务执行完成")
+				job.Status = Running
+				defer func() {
+					job.Status = Finished
 				}()
+				ctx, cancel := context.WithTimeout(context.Background(), job.Timeout)
+				defer cancel()
+				execTime := time.Now()
+				err := job.Run(ctx)
+				if err != nil {
+					resultChan <- &JobResult{
+						Id:       job.Id,
+						ExecTime: execTime,
+						Result:   Failure,
+						Err:      err,
+					}
+				} else if errors.Is(err, context.DeadlineExceeded) {
+					resultChan <- &JobResult{
+						Id:       job.Id,
+						ExecTime: execTime,
+						Result:   Expired,
+						Err:      err,
+					}
+				}
+				resultChan <- &JobResult{
+					Id:       job.Id,
+					ExecTime: execTime,
+					Result:   Success,
+					Err:      nil,
+				}
+				log.Println("任务执行完成")
 			case <-t.quit:
 				return
 			case <-time.After(1 * time.Second):

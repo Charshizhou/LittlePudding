@@ -16,33 +16,30 @@ import (
 大量任务被发往该执行器组中
 快堆慢堆 快堆用来存放有优先级的任务，慢堆用来存放无优先级的任务
 任务根据预计执行时间与当前时间的差值来进行排序
-
-*/
-
-/*
-id int, runType string, cmdType string, cmdParam, glueParam, cmdParam interface{}
 */
 
 type RouteStrategy int
 
-const (
-	Random     RouteStrategy = iota // 随机
-	RoundRobin                      // 轮询
-	LeastTask                       // 最少任务
-)
-
 type Task struct {
-	Id            int         // 任务ID
-	Priority      int         // 任务优先级
-	ExecTime      time.Time   // 预计执行时间
-	RouteStrategy string      // 路由策略
-	TaskType      string      // 任务类型
-	TaskParam     string      // 任务参数
-	TaskResult    *TaskResult // 任务结果
-	TaskStatus    Status      // 任务状态
+	Id            int           // 任务ID
+	Priority      int           // 任务优先级
+	ExecTime      time.Time     // 预计执行时间
+	RouteStrategy string        // 路由策略
+	TaskType      string        // 任务类型
+	TaskParam     string        // 任务参数
+	TaskResult    *TaskResult   // 任务结果
+	DispatchTime  time.Time     // 分发时间
+	TaskStatus    Status        // 任务状态
+	TaskTimeout   time.Duration // 任务超时时间
 }
 
-type TaskResult JobResult
+type TaskResult struct {
+	Id           int
+	ExecTime     time.Time
+	DispatchTime time.Time
+	Result       Result
+	Err          error
+}
 
 type TaskHeap []*Task
 
@@ -118,7 +115,7 @@ func (e *Executor) AddTasksToExec() {
 			task := heap.Pop(&e.FastHeap).(*Task)
 			e.mutex.Unlock()
 			// 任务添加到缓冲区
-			e.addTaskToExec(task)
+			e.scheduleTask(task)
 			continue
 		}
 		// 如果快堆为空，则从慢堆取出任务执行
@@ -127,7 +124,7 @@ func (e *Executor) AddTasksToExec() {
 			task := heap.Pop(&e.SlowHeap).(*Task)
 			e.mutex.Unlock()
 			// 任务添加到缓冲区
-			e.addTaskToExec(task)
+			e.scheduleTask(task)
 			continue
 		}
 		// 如果快慢堆都为空，则等待
@@ -141,6 +138,18 @@ func (e *Executor) AddTasksToExec() {
 			// 定时器触发，继续下一轮循环
 			timer.Stop()
 		}
+	}
+}
+
+// scheduleTask 调度任务
+func (e *Executor) scheduleTask(task *Task) {
+	delay := task.ExecTime.Sub(time.Now())
+	if delay > 0 {
+		time.AfterFunc(delay, func() {
+			e.addTaskToExec(task)
+		})
+	} else {
+		e.addTaskToExec(task)
 	}
 }
 
@@ -158,11 +167,18 @@ func (e *Executor) ExecuteTask() {
 
 		select {
 		case task := <-e.taskChan:
+			task.DispatchTime = time.Now()
 			e.dispatchTask(*task, availableJobRunners)
 		case result := <-e.ResultChan:
 			// 任务执行结果与map中的任务进行关联
 			if task, ok := e.taskMap[result.Id]; ok {
-				task.TaskResult = (*TaskResult)(result)
+				task.TaskResult = &TaskResult{
+					Id:           result.Id,
+					ExecTime:     result.ExecTime,
+					DispatchTime: task.DispatchTime,
+					Result:       result.Result,
+					Err:          result.Err,
+				}
 				task.TaskStatus = Finished
 			}
 			e.isFull.Signal()
@@ -183,9 +199,12 @@ func (e *Executor) Run() {
 	for i := 0; i < 2; i++ {
 		go e.AddTasksToExec()
 	}
+	// 启动消费者
 	for i := 0; i < 2; i++ {
 		go e.ExecuteTask()
 	}
+	// 启动清理过期任务
+	go e.CleanupExpiredTasks()
 }
 
 func (e *Executor) dispatchTask(task Task, jobRunners []int) {
@@ -241,6 +260,48 @@ func (e *Executor) GetAvailableJobRunners() (jobRunners []int) {
 	return
 }
 
+// CleanupExpiredTasks 清理过期任务
+func (e *Executor) CleanupExpiredTasks() {
+	for {
+		time.Sleep(1 * time.Minute)
+		now := time.Now()
+
+		e.mutex.Lock()
+		// 清理快堆中过期任务
+		for e.FastHeap.Len() > 0 {
+			task := e.FastHeap[0]
+			if now.Sub(task.ExecTime) > 1*time.Minute {
+				heap.Pop(&e.FastHeap)
+				delete(e.taskMap, task.Id)
+				task.TaskResult = &TaskResult{
+					Id:     task.Id,
+					Result: Overdue,
+					Err:    errors.New("task overdue"),
+				}
+			} else {
+				break
+			}
+		}
+
+		// 清理慢堆中过期任务
+		for e.SlowHeap.Len() > 0 {
+			task := e.SlowHeap[0]
+			if now.Sub(task.ExecTime) > 1*time.Minute {
+				heap.Pop(&e.SlowHeap)
+				delete(e.taskMap, task.Id)
+				task.TaskResult = &TaskResult{
+					Id:     task.Id,
+					Result: Overdue,
+					Err:    errors.New("task overdue"),
+				}
+			} else {
+				break
+			}
+		}
+		e.mutex.Unlock()
+	}
+}
+
 func (e *Executor) addTaskToExec(task *Task) {
 	// 执行任务
 	e.taskChan <- task
@@ -264,12 +325,11 @@ func (e *Executor) RunTask(ctx context.Context, task *Task) (*TaskResult, error)
 		for {
 			if task.TaskStatus == Finished {
 				e.mutex.Lock()
-				result := task.TaskResult
 				delete(e.taskMap, task.Id)
 				e.mutex.Unlock()
 
-				if result != nil {
-					resultChan <- result
+				if task.TaskResult != nil {
+					resultChan <- task.TaskResult
 				} else {
 					resultChan <- &TaskResult{
 						Id:     task.Id,
@@ -277,7 +337,6 @@ func (e *Executor) RunTask(ctx context.Context, task *Task) (*TaskResult, error)
 						Err:    errors.New("task finished but result is nil"),
 					}
 				}
-				return
 			}
 			time.Sleep(10 * time.Millisecond) // 避免频繁检查
 		}
@@ -287,9 +346,11 @@ func (e *Executor) RunTask(ctx context.Context, task *Task) (*TaskResult, error)
 	case result := <-resultChan:
 		log.Println("task result: ", result)
 		return &TaskResult{
-			Id:     task.Id,
-			Result: result.Result,
-			Err:    result.Err,
+			Id:           task.Id,
+			Result:       result.Result,
+			ExecTime:     result.ExecTime,
+			DispatchTime: result.DispatchTime,
+			Err:          result.Err,
 		}, nil
 	case <-ctx.Done():
 		// 超时处理
@@ -299,42 +360,3 @@ func (e *Executor) RunTask(ctx context.Context, task *Task) (*TaskResult, error)
 		return nil, ctx.Err()
 	}
 }
-
-//func (e *Executor) RunTask(ctx context.Context, task *Task) (*TaskResult, error) {
-//	resultChan := make(chan *TaskResult, 1)
-//
-//	// 将task加入堆和taskMap中
-//	e.mutex.Lock()
-//	if task.Priority > 0 {
-//		heap.Push(&e.FastHeap, task)
-//	} else {
-//		heap.Push(&e.SlowHeap, task)
-//	}
-//	e.taskMap[task.Id] = task
-//	e.mutex.Unlock()
-//
-//	// 启动一个goroutine来等待结果
-//	go func() {
-//		for {
-//			if task.TaskStatus == Finished {
-//				e.mutex.Lock()
-//				delete(e.taskMap, task.Id)
-//				e.mutex.Unlock()
-//				resultChan <- task.TaskResult
-//				return
-//			}
-//			time.Sleep(10 * time.Millisecond) // 避免频繁检查
-//		}
-//	}()
-//
-//	select {
-//	case result := <-resultChan:
-//		return &TaskResult{
-//			Id:     task.Id,
-//			Result: result.Result,
-//			Err:    result.Err,
-//		}, nil
-//	case <-ctx.Done():
-//		return nil, ctx.Err()
-//	}
-//}

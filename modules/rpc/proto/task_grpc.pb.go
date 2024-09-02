@@ -4,7 +4,7 @@
 // - protoc             v3.19.4
 // source: task.proto
 
-package rpc
+package __
 
 import (
 	context "context"

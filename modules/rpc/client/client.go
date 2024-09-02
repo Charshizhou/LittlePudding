@@ -1,18 +1,16 @@
 package client
 
 import (
+	"LittlePudding/service"
 	"errors"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"sync"
 	"time"
 
-	"google.golang.org/grpc/status"
-
-	"LittlePudding/modules/logger"
 	"LittlePudding/modules/rpc/grpcpool"
 	pb "LittlePudding/modules/rpc/proto"
 	"golang.org/x/net/context"
-	"google.golang.org/grpc/codes"
 )
 
 var (
@@ -23,12 +21,12 @@ var (
 	errUnavailable = errors.New("无法连接远程服务器")
 )
 
-func generateTaskUniqueKey(ip string, port int, id int32) string {
-	return fmt.Sprintf("%s:%d:%d", ip, port, id)
+func generateTaskUniqueKey(addr string, id int32) string {
+	return fmt.Sprintf("%s:%d", addr, id)
 }
 
-func Stop(ip string, port int, id int32) {
-	key := generateTaskUniqueKey(ip, port, id)
+func Stop(addr string, id int32) {
+	key := generateTaskUniqueKey(addr, id)
 	cancel, ok := taskMap.Load(key)
 	if !ok {
 		return
@@ -36,54 +34,45 @@ func Stop(ip string, port int, id int32) {
 	cancel.(context.CancelFunc)()
 }
 
-func Exec(ip string, port int, taskReq *pb.TaskRequest) (string, error) {
+func Exec(addr string, taskReq *pb.TaskRequest) (*service.TaskResult, error) {
 	defer func() {
 		if err := recover(); err != nil {
-			logger.Error("panic#rpc/client.go:Exec#", err)
+			logrus.Error("panic#rpc/client.go:Exec#", err)
 		}
 	}()
-	addr := fmt.Sprintf("%s:%d", ip, port)
 	c, err := grpcpool.Pool.Get(addr)
 	if err != nil {
-		return "", err
+		logrus.Infof("pool err: %v", err)
+		return &service.TaskResult{}, err
 	}
 	if taskReq.TaskTimeout <= 0 || taskReq.TaskTimeout > 86400 {
 		taskReq.TaskTimeout = 86400
 	}
-	timeout := time.Duration(taskReq.TaskTimeout) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	// 设置任务超时时间 + 30s
+	timeout := time.Duration(taskReq.TaskTimeout+30) * time.Second
+	_, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	taskUniqueKey := generateTaskUniqueKey(ip, port, taskReq.Id)
+	taskUniqueKey := generateTaskUniqueKey(addr, taskReq.Id)
 	taskMap.Store(taskUniqueKey, cancel)
 	defer taskMap.Delete(taskUniqueKey)
-
-	resp, err := c.RunTask(ctx, taskReq)
-	var result string
-	if resp.Result == 0 {
-		result = "Success"
-	} else {
-		result = "Failed"
-	}
+	logrus.Infof("taks run %v", taskReq.Id)
+	resp, err := c.RunTask(context.Background(), taskReq)
+	logrus.Infof("task result: %v", resp)
+	logrus.Infof("time: %v    %v", resp.ExecTime, resp.DispatchTime)
 	if err != nil {
-		return parseGRPCError(err)
+		return &service.TaskResult{}, err
+	}
+	taskResult := &service.TaskResult{
+		Id:           int(resp.Id),
+		ExecTime:     time.Unix(resp.ExecTime, 0),
+		DispatchTime: time.Unix(resp.DispatchTime, 0),
+		Result:       service.Result(resp.Result),
+		Err:          errors.New(resp.Error),
 	}
 
 	if resp.Error == "" {
-		return result, nil
+		return taskResult, nil
 	}
-
-	return result, errors.New(resp.Error)
-}
-
-func parseGRPCError(err error) (string, error) {
-	switch status.Code(err) {
-	case codes.Unavailable:
-		return "", errUnavailable
-	case codes.DeadlineExceeded:
-		return "", errors.New("执行超时, 强制结束")
-	case codes.Canceled:
-		return "", errors.New("手动停止")
-	}
-	return "", err
+	return taskResult, errors.New(resp.Error)
 }

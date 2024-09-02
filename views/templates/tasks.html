@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任务管理</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+        main {
+            flex: 1;
+        }
+        table {
+            width: 100%;
+            min-width: 1000px; /* 设置表格的最小宽度 */
+            table-layout: fixed; /* 固定表格布局 */
+        }
+        th, td {
+            white-space: nowrap; /* 强制内容不换行 */
+            text-overflow: ellipsis; /* 超出部分以省略号显示 */
+            overflow: hidden; /* 隐藏超出部分 */
+        }
+        .modal-body {
+            overflow-x: auto; /* 允许水平滚动 */
+        }
+        .container {
+            margin-top: 20px;
+        }
+        .button-group {
+            width: 300px;
+            display: flex;
+            gap: 5px;
+        }
+        .bigFlex{
+            display: flex;
+            justify-content: space-around;
+        }
+    </style>
+</head>
+<body>
+<header class="bg-primary text-white text-center py-3">
+    <h1>任务管理</h1>
+</header>
+<main>
+    <div class="container">
+        <div class="mb-3 row bigFlex">
+            <div class="col-md-3">
+                <input type="text" id="taskId" class="form-control" placeholder="请输入任务ID">
+            </div>
+            <div class="col-md-3">
+                <input type="text" id="executorId" class="form-control" placeholder="请输入执行器ID">
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-primary" onclick="searchTasks()">查询</button>
+
+                <!-- 新建任务按钮 -->
+                <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#newTaskModal">新增任务</button>
+
+                <!-- 新建任务模态框 -->
+                <div class="modal fade" id="newTaskModal" tabindex="-1" aria-labelledby="newTaskModalLabel" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="newTaskModalLabel">新建任务</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <form id="newTaskForm">
+                                    <div class="mb-3">
+                                        <label for="TaskName" class="form-label">任务名称</label>
+                                        <input type="text" class="form-control" id="TaskName" name="TaskName" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="TaskCron" class="form-label">Cron表达式</label>
+                                        <input type="text" class="form-control" id="TaskCron" name="TaskCron" placeholder="*(秒) *(分) *(小时) *(日期) *(月份) *(星期/年)" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="TaskDesc" class="form-label">任务描述</label>
+                                        <textarea class="form-control" id="TaskDesc" name="TaskDesc" rows="3"></textarea>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="Author" class="form-label">任务创建者</label>
+                                        <input type="text" class="form-control" id="Author" name="Author" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="ScheduleType" class="form-label">调度类型</label>
+                                        <select class="form-control" id="ScheduleType" name="ScheduleType" required>
+                                            <option value="1">cron</option>
+                                            <option value="2">FIX_RATE</option>
+                                            <option value="3">FIX_DELAY</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="ScheduleConf" class="form-label">调度配置</label>
+                                        <input type="text" class="form-control" id="ScheduleConf" name="ScheduleConf" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="MisfireStrategy" class="form-label">调度过期策略</label>
+                                        <select class="form-control" id="MisfireStrategy" name="MisfireStrategy" required>
+                                            <option value="DO_NOTHING">DO_NOTHING</option>
+                                            <option value="RETRY">RETRY</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="ExecutorRouteStrategy" class="form-label">执行器路由策略</label>
+                                        <select class="form-control" id="ExecutorRouteStrategy" name="ExecutorRouteStrategy" required>
+                                            <option value="Random">Random</option>
+                                            <option value="RoundRobin">RoundRobin</option>
+                                            <option value="LeastTask">LeastTask</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="ExecutorId" class="form-label">执行器组ID</label>
+                                        <input type="number" class="form-control" id="ExecutorId" name="ExecutorId" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="TaskParam" class="form-label">任务参数</label>
+                                        <input type="text" class="form-control" id="TaskParam" name="TaskParam" placeholder="请输入脚本路径" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="Priority" class="form-label">任务优先级</label>
+                                        <input type="number" class="form-control" id="Priority" name="Priority" required min="0" max="6" placeholder="0-6">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="ExecuteTimeout" class="form-label">任务超时时间（秒）</label>
+                                        <input type="number" class="form-control" id="ExecuteTimeout" name="ExecuteTimeout" required min="0" max="86400" placeholder="0-86400">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="ExecuteFailRetryCount" class="form-label">失败重试次数</label>
+                                        <input type="number" class="form-control" id="ExecuteFailRetryCount" name="ExecuteFailRetryCount" required min="0" max="5" placeholder="0-5">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="TaskType" class="form-label">任务代码方式</label>
+                                        <select class="form-control" id="TaskType" name="TaskType" required>
+                                            <option value="GLUE">GLUE</option>
+                                            <option value="CMD_python">CMD_python</option>
+                                            <option value="CMD_go">CMD_go</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="TaskRemark" class="form-label">任务代码备注</label>
+                                        <textarea class="form-control" id="TaskRemark" name="TaskRemark" rows="3"></textarea>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary" id="submitBtn">保存</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <table class="table table-bordered">
+            <thead>
+            <tr>
+                <th>任务ID</th>
+                <th>任务名称</th>
+                <th>执行器ID</th>
+                <th>Cron表达式</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody id="taskTableBody">
+            </tbody>
+        </table>
+
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center" id="pagination">
+            </ul>
+        </nav>
+    </div>
+    <!-- 任务详情模态框 -->
+    <div class="modal fade" id="taskModal" tabindex="-1" aria-labelledby="taskModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="taskModalLabel">任务详情</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="taskForm">
+                        <div class="mb-3">
+                            <label for="taskName" class="form-label">任务名称</label>
+                            <input type="text" class="form-control" id="taskName" name="taskName">
+                        </div>
+                        <div class="mb-3">
+                            <label for="executorId" class="form-label">执行器ID</label>
+                            <input type="number" class="form-control" id="executorId" name="executorId">
+                        </div>
+                        <div class="mb-3">
+                            <label for="taskCron" class="form-label">Cron表达式</label>
+                            <input type="text" class="form-control" id="taskCron" name="taskCron">
+                        </div>
+                        <div class="mb-3">
+                            <label for="taskDesc" class="form-label">任务描述</label>
+                            <textarea class="form-control" id="taskDesc" name="taskDesc" rows="3"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="author" class="form-label">任务创建者</label>
+                            <input type="text" class="form-control" id="author" name="author">
+                        </div>
+                        <div class="mb-3">
+                            <label for="scheduleType" class="form-label">调度类型</label>
+                            <select class="form-control" id="scheduleType" name="scheduleType">
+                                <option value="1">corn</option>
+                                <option value="2">FIX_RATE</option>
+                                <option value="3">FIX_DELAY</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="scheduleConf" class="form-label">调度配置</label>
+                            <input type="text" class="form-control" id="scheduleConf" name="scheduleConf">
+                        </div>
+                        <div class="mb-3">
+                            <label for="misfireStrategy" class="form-label">调度过期策略</label>
+                            <select class="form-control" id="misfireStrategy" name="misfireStrategy">
+                                <option value="DO_NOTHING">DO_NOTHING</option>
+                                <option value="RETRY">RETRY</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="executorRouteStrategy" class="form-label">执行器路由策略</label>
+                            <select class="form-control" id="executorRouteStrategy" name="executorRouteStrategy">
+                                <option value="Random">RANDOM</option>
+                                <option value="RoundRobin">RoundRobin</option>
+                                <option value="LeastTask">LeastTask</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="taskParam" class="form-label">任务参数</label>
+                            <input type="text" class="form-control" id="taskParam" name="taskParam">
+                        </div>
+                        <div class="mb-3">
+                            <label for="priority" class="form-label">任务优先级</label>
+                            <input type="number" class="form-control" id="priority" name="priority" min="0" max="6">
+                        </div>
+                        <div class="mb-3">
+                            <label for="executeTimeout" class="form-label">任务超时时间（秒）</label>
+                            <input type="number" class="form-control" id="executeTimeout" name="executeTimeout" min="0" max="86400">
+                        </div>
+                        <div class="mb-3">
+                            <label for="executeFailRetryCount" class="form-label">失败重试次数</label>
+                            <input type="number" class="form-control" id="executeFailRetryCount" name="executeFailRetryCount" min="0" max="5">
+                        </div>
+                        <div class="mb-3">
+                            <label for="taskType" class="form-label">任务代码方式</label>
+                            <select class="form-control" id="taskType" name="taskType">
+                                <option value="GLUE">GLUE</option>
+                                <option value="CMD_python">CMD_python</option>
+                                <option value="CMD_go">CMD_go</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="taskRemark" class="form-label">任务代码备注</label>
+                            <textarea class="form-control" id="taskRemark" name="taskRemark" rows="3"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="saveTaskBtn">保存</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日志模态框 -->
+    <div class="modal fade" id="logModal" tabindex="-1" aria-labelledby="logModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="logModalLabel">任务日志</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div style="overflow-x: auto;">
+                        <table class="table table-bordered">
+                            <thead>
+                            <tr>
+                                <td>日志id</td>
+                                <td>任务id</td>
+                                <td>执行器id</td>
+                                <td>执行器地址</td>
+                                <td>执行参数</td>
+                                <td>失败重试次数</td>
+                                <td>调式时间</td>
+                                <td>执行时间</td>
+                                <td>执行结果</td>
+                            </tr>
+                            </thead>
+                            <tbody id="logTableBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</main>
+<footer class="bg-light text-center py-3">
+    <p>&copy; LittlePudding 定时任务管理系统</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    let tasks = [];
+    let currentPage = 1;
+    let totalTasks = 0;
+    const itemsPerPage = 10;
+
+    //
+    async function fetchTasks(page = 1) {
+        currentPage = page;
+        const response = await fetch(`/task?page=${page}&pageSize=${itemsPerPage}`);
+        const result = await response.json();
+        tasks = result.data;
+        totalTasks = result.total;
+        renderTable();
+        renderPagination();
+    }
+    function renderTable() {
+        const tableBody = document.getElementById('taskTableBody');
+        tableBody.innerHTML = '';
+
+        tasks.forEach(task => {
+            const statusLabel = task.status === 1 ? '启用' : '停用';
+            const actionButton = task.status === 1
+                ? `<button class="btn btn-secondary btn-sm" onclick="toggleTaskStatus(${task.id}, 'disabled')">停用</button>`
+                : `<button class="btn btn-success btn-sm" onclick="toggleTaskStatus(${task.id}, 'enabled')">启用</button>`;
+
+            const row = `
+            <tr>
+                <td>${task.id}</td>
+                <td>${task.name}</td>
+                <td>${task.executor_id}</td>
+                <td>${task.task_cron}</td>
+                <td>${statusLabel}</td>
+                <td class="button-group">
+                    <button class="btn btn-info btn-sm" onclick="viewTask(${task.id})">查看</button>
+                    <button class="btn btn-primary btn-sm" onclick="runTask(${task.id})">执行</button>
+                    <button class="btn btn-warning btn-sm" onclick="viewLogs(${task.id})">日志</button>
+                    ${actionButton}
+                    <button class="btn btn-danger btn-sm" onclick="deleteTask(${task.id})">删除</button>
+                </td>
+            </tr>
+        `;
+            tableBody.innerHTML += row;
+        });
+    }
+
+    function renderPagination() {
+        const pagination = document.getElementById('pagination');
+        pagination.innerHTML = '';
+
+        const pageCount = Math.ceil(totalTasks / itemsPerPage);
+        for (let i = 1; i <= pageCount; i++) {
+            const pageItem = document.createElement('li');
+            pageItem.className = `page-item ${i === currentPage ? 'active' : ''}`;
+            pageItem.innerHTML = `
+                <a class="page-link" href="#" onclick="goToPage(${i})">${i}</a>
+            `;
+            pagination.appendChild(pageItem);
+        }
+    }
+
+    function goToPage(page) {
+        fetchTasks(page);
+    }
+
+    async function searchTasks() {
+        const taskId = document.getElementById('taskId').value;
+        const executorId = document.getElementById('executorId').value;
+
+        const response = await fetch(`/task?id=${taskId}&executor_id=${executorId}&page=${currentPage}&pageSize=${itemsPerPage}`);
+        const result = await response.json();
+        tasks = result.data;
+        totalTasks = result.total;
+        renderTable();
+        renderPagination();
+    }
+
+    async function toggleTaskStatus(id, action) {
+        const url = action === 'enabled' ? `/task/enable/:id?id=${id}` : `/task/disable/:id?id=${id}`;
+        const response = await fetch(url, {
+            method: 'POST',
+        });
+
+        const result = await response.json();
+        alert(result.message);
+
+        if (response.ok) {
+            fetchTasks();
+        }
+    }
+
+    function renderFilteredTable(filteredTasks) {
+        const tableBody = document.getElementById('taskTableBody');
+        tableBody.innerHTML = '';
+
+        filteredTasks.forEach(task => {
+            const row = `
+                <tr>
+                    <td>${task.id}</td>
+                    <td>${task.name}</td>
+                    <td>${task.executor_id}</td>
+                    <td>${task.task_cron}</td>
+                    <td class="button-group">
+                        <button class="btn btn-info btn-sm" onclick="viewTask(${task.id})">查看</button>
+                        <button class="btn btn-warning btn-sm" onclick="viewLogs(${task.id})">日志</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteTask(${task.id})">删除</button>
+                    </td>
+                </tr>
+            `;
+            tableBody.innerHTML += row;
+        });
+    }
+
+    function runTask(id) {
+        fetch(`/task/run/:id?id=${id}`, { method: 'GET' })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                fetchTasks();
+            })
+            .catch(error => console.error('Error running task:', error));
+    }
+
+    async function viewLogs(id) {
+        const response = await fetch(`/task/log?task_id=${id}`);
+        const logs = await response.json();
+
+        const logTableBody = document.getElementById('logTableBody');
+        logTableBody.innerHTML = '';
+
+        logs.data.forEach(log => {
+            const row = `
+            <tr>
+                <td>${log.id}</td>
+                <td>${log.task_id}</td>
+                <td>${log.task_executor}</td>
+                <td>${log.executor_address}</td>
+                <td>${log.executor_param}</td>
+                <td>${log.executor_fail_retry_count}</td>
+                <td>${log.dispatch_time}</td>
+                <td>${log.exec_time}</td>
+                <td>${log.exec_result}</td>
+            </tr>
+        `;
+            logTableBody.innerHTML += row;
+        });
+
+        const logModal = new bootstrap.Modal(document.getElementById('logModal'));
+        logModal.show();
+    }
+
+    async function viewTask(id) {
+        const response = await fetch(`/task/:id/?id=${id}`);
+        const task = await response.json();
+
+        document.getElementById('taskId').value = task.id;
+        document.getElementById('taskName').value = task.name;
+        document.getElementById('executorId').value = task.executor_id;
+        document.getElementById('taskCron').value = task.task_cron;
+        document.getElementById('taskDesc').value = task.task_desc;
+        document.getElementById('author').value = task.author;
+        document.getElementById('scheduleType').value = task.schedule_type;
+        document.getElementById('scheduleConf').value = task.schedule_conf;
+        document.getElementById('misfireStrategy').value = task.MisfireStrategy;
+        document.getElementById('executorRouteStrategy').value = task.executor_route_strategy;
+        document.getElementById('taskParam').value = task.task_param;
+        document.getElementById('priority').value = task.priority;
+        document.getElementById('executeTimeout').value = task.execute_timeout;
+        document.getElementById('executeFailRetryCount').value = task.execute_fail_retry_count;
+        document.getElementById('taskType').value = task.task_type;
+        document.getElementById('taskRemark').value = task.task_remark;
+
+        const taskModal = new bootstrap.Modal(document.getElementById('taskModal'));
+        taskModal.show();
+    }
+
+    async function deleteTask(id) {
+        if (confirm('确认删除任务：' + id + ' 吗？')) {
+            const response = await fetch(`/task/remove/:id?id=${id}`, {
+                method: 'POST',
+            });
+
+            const result = await response.json();
+            alert(result.message);
+            fetchTasks();
+        }
+    }
+
+    document.getElementById('newTaskForm').addEventListener('submit', async function(event) {
+        event.preventDefault();
+
+        const formData = new FormData(document.getElementById('newTaskForm'));
+        const newTask = {
+            name: formData.get('TaskName'),
+            taskCron: formData.get('TaskCron'),
+            taskDesc: formData.get('TaskDesc'),
+            author: formData.get('Author'),
+            scheduleType: parseInt(formData.get('ScheduleType')),
+            scheduleConf: formData.get('ScheduleConf'),
+            misfireStrategy: formData.get('MisfireStrategy'),
+            executorRouteStrategy: formData.get('ExecutorRouteStrategy'),
+            executorId: parseInt(formData.get('ExecutorId')),
+            taskParam: formData.get('TaskParam'),
+            priority: parseInt(formData.get('Priority')),
+            executeTimeout: parseInt(formData.get('ExecuteTimeout')),
+            executeFailRetryCount: parseInt(formData.get('ExecuteFailRetryCount')),
+            taskType: formData.get('TaskType'),
+            taskRemark: formData.get('TaskRemark')
+        };
+
+        const response = await fetch('/task/store', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(newTask),
+        });
+
+        const result = await response.json();
+        alert(result.message);
+
+        if (response.ok) {
+            fetchTasks(); // 重新获取任务列表
+            const newTaskModal = document.getElementById('newTaskModal');
+            const modalInstance = bootstrap.Modal.getInstance(newTaskModal);
+            modalInstance.hide(); // 关闭模态框
+        }
+    });
+    // 监听表单提交事件
+    document.getElementById('taskForm').addEventListener('submit', async function(event) {
+        event.preventDefault();
+
+        const formData = new FormData(document.getElementById('taskForm'));
+        const updatedTask = {
+            id: formData.get('taskId'),
+            name: formData.get('taskName'),
+            executor_id: parseInt(formData.get('executorId')),
+            task_cron: formData.get('taskCron'),
+            task_desc: formData.get('taskDesc'),
+            author: formData.get('author'),
+            schedule_type: formData.get('scheduleType'),
+            schedule_conf: formData.get('scheduleConf'),
+            misfire_strategy: formData.get('misfireStrategy'),
+            executor_route_strategy: formData.get('executorRouteStrategy'),
+            task_param: formData.get('taskParam'),
+            priority: parseInt(formData.get('priority')),
+            execute_timeout: parseInt(formData.get('executeTimeout')),
+            execute_fail_retry_count: parseInt(formData.get('executeFailRetryCount')),
+            task_type: formData.get('taskType'),
+            task_remark: formData.get('taskRemark')
+        };
+
+        const response = await fetch(`/task/update`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(updatedTask),
+        });
+
+        const result = await response.json();
+        alert(result.message);
+
+        if (response.ok) {
+            fetchTasks(); // 重新获取任务列表
+            const taskModal = bootstrap.Modal.getInstance(document.getElementById('taskModal'));
+            taskModal.hide(); // 关闭模态框
+        }
+    });
+
+    // 监听模态框关闭事件，检查数据是否有更改并保存
+    document.getElementById('taskModal').addEventListener('hide.bs.modal', async function(event) {
+        const formData = new FormData(document.getElementById('taskForm'));
+        const updatedTask = {
+            id: formData.get('taskId'),
+            name: formData.get('taskName'),
+            executor_id: parseInt(formData.get('executorId')),
+            task_cron: formData.get('taskCron'),
+            task_desc: formData.get('taskDesc'),
+            author: formData.get('author'),
+            schedule_type: formData.get('scheduleType'),
+            schedule_conf: formData.get('scheduleConf'),
+            misfire_strategy: formData.get('misfireStrategy'),
+            executor_route_strategy: formData.get('executorRouteStrategy'),
+            task_param: formData.get('taskParam'),
+            priority: parseInt(formData.get('priority')),
+            execute_timeout: parseInt(formData.get('executeTimeout')),
+            execute_fail_retry_count: parseInt(formData.get('executeFailRetryCount')),
+            task_type: formData.get('taskType'),
+            task_remark: formData.get('taskRemark')
+        };
+
+        // 检查数据是否有更改
+        const originalTask = tasks.find(task => task.id === updatedTask.id);
+        const isChanged = Object.keys(updatedTask).some(key => originalTask[key] !== updatedTask[key]);
+
+        if (isChanged) {
+            const response = await fetch(`/task/update`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(updatedTask),
+            });
+
+            const result = await response.json();
+            alert(result.message);
+
+            if (response.ok) {
+                fetchTasks(); // 重新获取任务列表
+            }
+        }
+    });
+
+    fetchTasks();
+</script>
+</body>
+</html>

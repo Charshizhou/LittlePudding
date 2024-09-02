@@ -2,15 +2,11 @@ package auth
 
 import (
 	"crypto/tls"
-	"crypto/x509"
-	"errors"
 	"fmt"
 	"google.golang.org/grpc/credentials"
-	"io/ioutil"
 )
 
 type Certificate struct {
-	CAFile     string
 	CertFile   string
 	KeyFile    string
 	ServerName string
@@ -25,21 +21,14 @@ func (c Certificate) GetTLSConfigForServer() (*tls.Config, error) {
 		return nil, err
 	}
 
-	certPool := x509.NewCertPool()
-	bs, err := ioutil.ReadFile(c.CAFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read client ca cert: %s", err)
 	}
 
-	ok := certPool.AppendCertsFromPEM(bs)
-	if !ok {
-		return nil, errors.New("failed to append client certs")
-	}
-
 	tlsConfig := &tls.Config{
-		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientAuth:   tls.NoClientCert,
 		Certificates: []tls.Certificate{certificate},
-		ClientCAs:    certPool,
+		ClientCAs:    nil,
 	}
 
 	return tlsConfig, nil
@@ -54,21 +43,15 @@ func (c Certificate) GetTransportCredsForClient() (credentials.TransportCredenti
 		return nil, err
 	}
 
-	certPool := x509.NewCertPool()
-	bs, err := ioutil.ReadFile(c.CAFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read ca cert: %s", err)
 	}
 
-	ok := certPool.AppendCertsFromPEM(bs)
-	if !ok {
-		return nil, errors.New("failed to append certs")
-	}
-
 	transportCreds := credentials.NewTLS(&tls.Config{
-		ServerName:   c.ServerName,
-		Certificates: []tls.Certificate{certificate},
-		RootCAs:      certPool,
+		ServerName:         c.ServerName,
+		Certificates:       []tls.Certificate{certificate},
+		InsecureSkipVerify: true,
+		RootCAs:            nil,
 	})
 
 	return transportCreds, nil

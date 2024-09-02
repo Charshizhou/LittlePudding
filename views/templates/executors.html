@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>执行器管理</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        header, footer { text-align: center; padding: 10px 0; background-color: #f8f8f8; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        table, th, td { border: 1px solid #ddd; }
+        th, td { padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .pagination { text-align: center; }
+        .pagination a { margin: 0 5px; padding: 8px 16px; text-decoration: none; border: 1px solid #ddd; color: #333; }
+        .pagination a.active { background-color: #4caf50; color: white; border: 1px solid #4caf50; }
+        .pagination a:hover { background-color: #ddd; }
+        .search-bar { margin-bottom: 20px; }
+        .search-bar input, .search-bar button { padding: 8px; margin-right: 5px; }
+        .inputLabel{ display: flex; }
+        .bigFlex{ display: flex; justify-content: space-around; flex-direction: row; flex-wrap: nowrap; }
+    </style>
+</head>
+<body>
+<header class="bg-primary text-white text-center py-3">
+    <h1>执行器管理</h1>
+</header>
+<main>
+    <div class="container">
+        <div class="mb-3 row bigFlex">
+            <div class="col inputLabel">
+                <input type="text" id="searchTaskId" class="form-control" placeholder="请输入任务ID">
+            </div>
+            <div class="col inputLabel">
+                <input type="text" id="searchExecutorId" class="form-control" placeholder="请输入执行器ID">
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-primary" onclick="search()">查询</button>
+                <button class="btn btn-success" onclick="newExecutor()">新建执行器</button>
+            </div>
+        </div>
+        <table class="table table-bordered">
+            <thead>
+            <tr>
+                <th>执行器ID</th>
+                <th>执行器名称</th>
+                <th>执行器地址</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody id="executorTable">
+            </tbody>
+        </table>
+
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center" id="pagination"></ul>
+        </nav>
+    </div>
+    <!-- 模态框 -->
+    <div class="modal fade" id="executorModal" tabindex="-1" aria-labelledby="executorModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="executorModalLabel">执行器信息</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="executorModalBody">
+                    <!-- 此处将显示执行器信息 -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</main>
+<footer class="bg-light text-center py-3">
+    <p>&copy; LittlePudding 定时任务管理系统</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    let executors = [];
+    let currentPage = 1;
+    const itemsPerPage = 5;
+
+    function fetchExecutors() {
+        fetch('/executor')
+            .then(response => response.json())
+            .then(data => {
+                executors = data;
+                renderTable();
+            })
+            .catch(error => console.error('Error fetching executors:', error));
+    }
+
+    function renderTable() {
+        const tableBody = document.getElementById('executorTable');
+        tableBody.innerHTML = '';
+        const start = (currentPage - 1) * itemsPerPage;
+        const end = start + itemsPerPage;
+        const paginatedExecutors = executors.data.slice(start, end);
+        paginatedExecutors.forEach(executor => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${executor.id}</td>
+                <td>${executor.executor_name}</td>
+                <td>${executor.address}</td>
+                <td class="button-group">
+                    <button class="btn btn-info btn-sm" onclick="viewExecutor(${executor.id})">查看</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteExecutor(${executor.id})">删除</button>
+                </td>
+            `;
+            tableBody.appendChild(row);
+        });
+        renderPagination();
+    }
+
+    function renderPagination() {
+        const pagination = document.getElementById('pagination');
+        pagination.innerHTML = '';
+        const pageCount = Math.ceil(executors.length / itemsPerPage);
+        for (let i = 1; i <= pageCount; i++) {
+            const pageItem = document.createElement('li');
+            pageItem.className = `page-item ${i === currentPage ? 'active' : ''}`;
+            pageItem.innerHTML = `
+                <a class="page-link" href="#" onclick="goToPage(${i})">${i}</a>
+            `;
+            pagination.appendChild(pageItem);
+        }
+    }
+
+    function goToPage(page) {
+        currentPage = page;
+        renderTable();
+    }
+
+    function search() {
+        const taskId = document.getElementById('searchTaskId').value;
+        const executorId = document.getElementById('searchExecutorId').value;
+        // 示例搜索逻辑，仅供参考
+        const filteredExecutors = executors.filter(executor =>
+            (!taskId || executor.taskId == taskId) &&
+            (!executorId || executor.id == executorId)
+        );
+        renderTable(filteredExecutors);
+    }
+
+    function newExecutor() {
+        const name = prompt('请输入执行器名称:');
+        const address = prompt('请输入执行器地址:');
+        fetch('/executor/store', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name, address })
+        })
+            .then(response => response.json())
+            .then(data => {
+                alert('新建执行器成功');
+                fetchExecutors();
+            })
+            .catch(error => console.error('Error storing executor:', error));
+    }
+
+    function viewExecutor(id) {
+        fetch(`/executor/:id/?id=${id}`)
+            .then(response => response.json())
+            .then(data => {
+                const dialog = new bootstrap.Modal(document.getElementById('executorModal'));
+                const body = document.getElementById('executorModalBody');
+                body.innerHTML = `
+                    <p><strong>ID:</strong> ${data.id}</p>
+                    <p><strong>名称:</strong> ${data.executor_name}</p>
+                    <p><strong>地址:</strong> ${data.address}</p>
+                    <p><strong>标题</strong> ${data.executor_title}</p>
+                `;
+                dialog.show();
+            })
+            .catch(error => console.error('Error viewing executor:', error));
+    }
+
+    function enableExecutor(id) {
+        fetch(`/executor/enable/${id}`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                fetchExecutors();
+            })
+            .catch(error => console.error('Error enabling executor:', error));
+    }
+
+    function disableExecutor(id) {
+        fetch(`/executor/disable/${id}`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                fetchExecutors();
+            })
+            .catch(error => console.error('Error disabling executor:', error));
+    }
+
+
+    function deleteExecutor(id) {
+        fetch(`/executor/remove/${id}`, {
+            method: 'POST'
+        })
+            .then(response => response.json())
+            .then(data => {
+                alert('删除执行器成功');
+                fetchExecutors();
+            })
+            .catch(error => console.error('Error deleting executor:', error));
+    }
+
+    fetchExecutors();
+</script>
+</body>
+</html>
